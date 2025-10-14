@@ -1,0 +1,25 @@
+sudo apt update && sudo apt install ffmpeg git wget -y
+git clone <your-wan2-repo-url>
+cd wan2_project   # folder containing wan2_workflow_v2.py etc.
+chmod +x setup_and_run_jsonui.sh
+./setup_and_run_jsonui.sh
+watch -n 2 nvidia-smi
+
+
+----Older---
+
+pip install gradio==4.41.0 moviepy ffmpeg-python
+python -m venv venv && source venv/bin/activate
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu118  # or CPU wheels
+pip install accelerate safetensors pillow numpy soundfile tqdm transformers diffusers==0.20.2 gTTS
+# ffmpeg must be installed on your system (apt / brew / choco)
+pip install bark
+pip install soundfile
+
+
+to use 
+
+
+python wan2_workflow.py --mode generate --prompt "dog and cat playing at golden hour" --out clip1
+python wan2_workflow.py --mode refine --latent cache/clip1.latent --feedback "make motion smoother and warmer" --out clip1_fixed
+

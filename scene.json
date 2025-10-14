@@ -1,0 +1,20 @@
+{
+  "scenes": [
+    {
+      "id": "scene1",
+      "summary": "A golden retriever and a white cat walk together through tall grass at sunset",
+      "camera": "slow dolly forward, warm lighting",
+      "audio_summary": "Soft ambient music, dog starts speaking",
+      "dialogue": "Dog: 'Look how far we've come!'  Cat: 'And yet the tree still looks so far.'",
+      "duration": 6.5
+    },
+    {
+      "id": "scene2",
+      "summary": "The cat jumps onto a rock as the camera pans right",
+      "camera": "tracking shot, lens flare",
+      "audio_summary": "Gentle wind, cat's meow",
+      "dialogue": "Cat: 'I can see the river from here!'",
+      "duration": 5.0
+    }
+  ]
+}
