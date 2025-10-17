@@ -1,31 +1,58 @@
 #!/usr/bin/env bash
+# setup.sh — minimal install for WAN2 Workflow V3 (gTTS only)
 set -e
 
-echo "🧠 Setting up WAN2.2 Scene JSON UI on A40..."
-BASE_DIR=$(dirname "$(realpath "$0")")
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BASE_DIR"
 
+echo "==> Installing system dependencies..."
+sudo apt update -y
+sudo apt install -y python3-venv python3-pip ffmpeg git wget build-essential libsndfile1
+
 if [ ! -d "wan2env" ]; then
+  echo "==> Creating virtual environment wan2env"
   python3 -m venv wan2env
 fi
 source wan2env/bin/activate
 
-pip install --upgrade pip
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu121
-pip install diffusers transformers safetensors gtts rich moviepy streamlit tqdm pillow
+echo "==> Upgrading pip and installing Python packages"
+pip install --upgrade pip setuptools wheel
 
-MODELS_DIR="$BASE_DIR/models"
-mkdir -p "$MODELS_DIR"
+# ✅ Torch and essentials
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install transformers diffusers safetensors accelerate ftfy
+pip install pillow tqdm numpy soundfile gtts streamlit
 
+# ✅ Optional: ComfyUI (for model loader later, no heavy dependencies)
+if [ ! -d "ComfyUI" ]; then
+  echo "==> Cloning ComfyUI (for model loaders, optional)"
+  git clone https://github.com/comfyanonymous/ComfyUI.git
+fi
+cd ComfyUI
+pip install -r requirements.txt || true
+pip install -e .
+cd "$BASE_DIR"
+
+# ✅ Model downloads (Comfy-Org WAN2.2)
+mkdir -p models
 declare -A WAN_MODELS=(
-  ["wan2.2_t2v_high.safetensors"]="https://huggingface.co/WAN-Labs/WAN2.2-T2V/resolve/main/wan2.2_t2v_high.safetensors"
-  ["wan2.2_t2v_low.safetensors"]="https://huggingface.co/WAN-Labs/WAN2.2-T2V/resolve/main/wan2.2_t2v_low.safetensors"
-  ["wan_2.1_vae.safetensors"]="https://huggingface.co/WAN-Labs/WAN2.1-VAE/resolve/main/vae.safetensors"
+  ["wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"]="https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+  ["wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"]="https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
+  ["wan_2.1_vae.safetensors"]="https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
+  ["umt5_xxl_fp16.safetensors"]="https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp16.safetensors"
 )
 
-for model in "${!WAN_MODELS[@]}"; do
-  [ -f "$MODELS_DIR/$model" ] || wget -q --show-progress -O "$MODELS_DIR/$model" "${WAN_MODELS[$model]}" || echo "⚠️ Missing $model"
+echo "==> Downloading model files if missing..."
+for name in "${!WAN_MODELS[@]}"; do
+  url="${WAN_MODELS[$name]}"
+  if [ ! -f "models/$name" ]; then
+    echo "Downloading $name..."
+    wget --show-progress -c "$url" -O "models/$name" || echo "⚠️ Failed to download $name (please download manually if needed)"
+  else
+    echo "Exists: models/$name"
+  fi
 done
 
-echo "🌐 Launching Scene JSON UI..."
-streamlit run wan2_ui_json.py
+echo "==> Setup complete!"
+echo "Activate the venv: source wan2env/bin/activate"
+echo "Start UI: streamlit run wan2_ui_v3.py"

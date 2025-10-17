@@ -2,7 +2,7 @@
 import streamlit as st, json, tempfile, os
 from pathlib import Path
 from moviepy.editor import VideoFileClip, concatenate_videoclips
-from wan2_workflow_v2 import generate_clip, refine_clip
+from wan2_workflow_v3 import generate_clip, refine_clip
 
 st.set_page_config(page_title="WAN2.2 Scene Generator + Refine", layout="wide")
 st.title("🎬 WAN2.2 Scene-to-Video + Feedback Refinement (A40 Ready)")
