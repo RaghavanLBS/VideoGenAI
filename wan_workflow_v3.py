@@ -82,6 +82,7 @@ RES_PRESETS = {
     "4k": {"width": 3840, "height": 2160},
 }
 
+'''
 DEFAULT_MODELS = {
     "unet_high": MODELS_DIR / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
     "unet_low": MODELS_DIR / "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
@@ -89,6 +90,15 @@ DEFAULT_MODELS = {
     "text_encoder": MODELS_DIR / "umt5_xxl_fp16.safetensors",
     # ip_adapter optional (we will not require it)
     "ip_adapter": MODELS_DIR / "wan_ip_adapter.safetensors",
+}
+from pathlib import Path
+'''
+
+DEFAULT_MODELS = {
+    "unet_high": Path("models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"),
+    "unet_low":  Path("models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"),
+    "vae":       Path("models/wan_2.1_vae.safetensors"),
+    "text_encoder": Path("models/umt5_xxl_fp16.safetensors")
 }
 
 # ---- utilities ----
