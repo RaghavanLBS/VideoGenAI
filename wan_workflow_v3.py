@@ -548,6 +548,7 @@ def main():
         printt('Persona initialized and saved:', args.persona)
         return
     if args.mode == 'generate':
+        engine.load_models(high=DEFAULT_MODELS['unet_high'], low=DEFAULT_MODELS['unet_low'], vae=DEFAULT_MODELS['vae'], text_encoder=DEFAULT_MODELS['text_encoder'])
         res = generate_clip(
             prompt=args.prompt,
             out_name=args.out,
