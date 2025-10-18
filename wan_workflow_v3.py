@@ -211,19 +211,16 @@ class WANEngine:
 
     def load_models(self, device="cuda", high: Optional[Path] = None, low: Optional[Path] = None, vae: Optional[Path] = None, text_encoder: Optional[Path] = None, use_ip_adapter: bool = False):
         print("[WAN] Loading UNet, VAE, and Text Encoder...")
-        high, low, vae, text_encoder = map(str, [high, low, vae, text_encoder])
-         # Load UNet via Comfy's checkpoint loader
-        unet_info = load_checkpoint_guess_config(str(high), output_vae=True, output_clip=True)
-        unet = unet_info[0]  # <-- tuple, first element is the model
+        from safetensors.torch import load_file
 
-        # Load VAE and text encoder via comfy.diffusers_load
-        _, clip, vae_model = load_diffusers("models", output_vae=True, output_clip=True)
+        unet = comfy.sd.load_diffusion_model("models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors")
+        vae_state = load_file("models/wan_2.1_vae.safetensors")
 
-        # Move to device
-        dev = mm.get_torch_device()
-        for m in [unet, clip, vae_model]:
-            if m is not None:
-                m.to(dev, dtype=torch.float16)
+        from diffusers import AutoencoderKL
+        vae = AutoencoderKL.from_config("stabilityai/sd-vae-ft-mse")
+        vae.load_state_dict(vae_state, strict=False)
+
+        clip = comfy.sd.load_clip("models/umt5_xxl_fp16.safetensors")
 
         self.pipe = {"unet": unet, "vae": vae_model, "clip": clip}
         print(f"[WAN] ✅ Models loaded successfully on {dev}")
