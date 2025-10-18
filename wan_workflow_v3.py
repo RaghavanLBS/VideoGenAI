@@ -211,7 +211,7 @@ class WANEngine:
 
     def load_models(self, device="cuda", high: Optional[Path] = None, low: Optional[Path] = None, vae: Optional[Path] = None, text_encoder: Optional[Path] = None, use_ip_adapter: bool = False):
         print("[WAN] Loading UNet, VAE, and Text Encoder...")
-
+        high, low, vae, text_encoder = map(str, [high, low, vae, text_encoder])
         # Load UNet (WAN2 high noise)
         unet_info = load_checkpoint_guess_config(high, output_vae=True, output_clip=True)
         unet = unet_info["model"]
