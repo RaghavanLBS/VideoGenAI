@@ -347,21 +347,49 @@ class WANEngine:
         print(f"[WAN] ✅ Latent generated. Shape: {tuple(latents.shape)}")
         return latents
 
-    def decode_latent_to_mp4(self, latent, out_path, fps=16):
-        printt("Decoding latent → frames → MP4 …")
-        frames = comfy_sd.decode_latent(self.pipe["vae"], latent)
-        temp_dir = tempfile.mkdtemp(prefix="wan_decode_")
-        for i, frame in enumerate(frames):
-            frame.save(os.path.join(temp_dir, f"frame_{i:04d}.png"))
-        subprocess.run([
+    def decode_latent_to_mp4(self, latent: torch.Tensor, out_path: str, fps: int = 16):
+        
+        """
+        Decode latent tensor to frames using the loaded VAE in self.pipe, then write to MP4.
+        Works even if comfy.sd is not available.
+        """
+        import imageio, tempfile, os, subprocess, shutil
+
+        printt("[WAN] Decoding latent → frames → MP4 …")
+        vae = self.pipe.get("vae", None)
+        if vae is None:
+            raise RuntimeError("VAE model missing in engine.pipe; please call load_models() first.")
+
+        latent = latent.to(next(vae.parameters()).device)
+        frames_dir = tempfile.mkdtemp(prefix="wan_decode_")
+
+        T = latent.shape[2] if latent.dim() == 5 else 1
+        for i in range(T):
+            with torch.no_grad():
+                if latent.dim() == 5:
+                    z = latent[:, :, i, :, :]
+                else:
+                    z = latent
+                recon = vae.decode(z)
+            if isinstance(recon, torch.Tensor):
+                recon = recon.detach().cpu()
+                # convert [-1,1]→[0,255]
+                if recon.min() < 0:
+                    recon = (recon.clamp(-1, 1) + 1) / 2
+                frame = (recon[0].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+                imageio.imwrite(os.path.join(frames_dir, f"frame_{i:04d}.png"), frame)
+
+        cmd = [
             "ffmpeg", "-y", "-loglevel", "error",
             "-framerate", str(fps),
-            "-i", os.path.join(temp_dir, "frame_%04d.png"),
+            "-i", os.path.join(frames_dir, "frame_%04d.png"),
             "-c:v", "libx264", "-pix_fmt", "yuv420p", out_path
-        ], check=True)
-        shutil.rmtree(temp_dir)
-        printt("✅ Video written:", out_path)
+        ]
+        subprocess.check_call(cmd)
+        shutil.rmtree(frames_dir)
+        printt(f"[WAN] ✅ MP4 written: {out_path}")
         return out_path
+
 # ---- Audio helpers (Bark/XTTS/gTTS) ----
 def make_tts_wav(text: str, out_wav: str, lang: str = 'en', tts_backend: str = 'bark', speaker: Optional[str] = None):
     out_wav = str(out_wav)
