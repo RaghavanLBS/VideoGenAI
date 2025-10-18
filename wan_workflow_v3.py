@@ -348,13 +348,17 @@ class WANEngine:
         print(f"[WAN] ✅ Latent generated. Shape: {tuple(latents.shape)}")
         return latents
 
-    def decode_latent_to_mp4(self, latent: torch.Tensor, out_path: str, fps: int = 16):
-        
+    def decode_latent_to_mp4(self,
+                         latent: torch.Tensor,
+                         out_path: str,
+                         fps: int = 16,
+                         keep_frames: bool = True):
         """
-        Decode latent tensor to frames using the loaded VAE in self.pipe, then write to MP4.
-        Works even if comfy.sd is not available.
+        Decode WAN latent tensor → frames → MP4.
+        Keeps PNG frames in a persistent folder (frames/<scene_name>/).
+        Handles 16→4 projection if needed.
         """
-        import imageio, tempfile, os, subprocess, shutil
+        import imageio, tempfile, os, subprocess, shutil, numpy as np
 
         printt("[WAN] Decoding latent → frames → MP4 …")
         vae = self.pipe.get("vae", None)
@@ -362,34 +366,49 @@ class WANEngine:
             raise RuntimeError("VAE model missing in engine.pipe; please call load_models() first.")
 
         latent = latent.to(next(vae.parameters()).device)
-        frames_dir = tempfile.mkdtemp(prefix="wan_decode_")
+        printt(f"[WAN] latent shape before decode: {tuple(latent.shape)}")
 
         T = latent.shape[2] if latent.dim() == 5 else 1
-        needs_projection = latent.shape[1] == 16
+        if T == 0:
+            raise RuntimeError("[WAN] ❌ Latent tensor has zero frames (T=0). Nothing to decode!")
+
+        # --- Determine scene name and persistent output folder ---
+        scene_name = os.path.splitext(os.path.basename(out_path))[0]
+        frames_dir = os.path.join("frames", scene_name)
+        os.makedirs(frames_dir, exist_ok=True)
+        printt(f"[WAN] Saving decoded frames to: {frames_dir}")
+
+        # --- Pre-create projection layer if needed ---
+        needs_proj = latent.shape[1] == 16
         proj = None
-        if needs_projection:
-            print("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode (applies to all frames) …")
+        if needs_proj:
+            printt("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode (applies to all frames)")
             proj = torch.nn.Conv2d(16, 4, kernel_size=1).to(latent.device, latent.dtype)
+
+        saved_count = 0
         for i in range(T):
             with torch.no_grad():
-                if latent.dim() == 5:
-                    z = latent[:, :, i, :, :]
-                else:
-                    z = latent
-                # inside decode_latent_to_mp4(), before vae.decode()
-            if z.shape[1] == 16:
-                print("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode …")
-                proj = torch.nn.Conv2d(16, 4, kernel_size=1).to(z.device, z.dtype)
-                with torch.no_grad():
+                z = latent[:, :, i, :, :] if latent.dim() == 5 else latent
+                if needs_proj:
                     z = proj(z)
                 recon = vae.decode(z)
+
             if isinstance(recon, torch.Tensor):
                 recon = recon.detach().cpu()
-                # convert [-1,1]→[0,255]
-                if recon.min() < 0:
+                if recon.min() < 0:  # normalize [-1,1] → [0,1]
                     recon = (recon.clamp(-1, 1) + 1) / 2
                 frame = (recon[0].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-                imageio.imwrite(os.path.join(frames_dir, f"frame_{i:04d}.png"), frame)
+                if np.isnan(frame).any():
+                    printt(f"[WARN] NaNs detected in frame {i}, skipping")
+                    continue
+                fname = os.path.join(frames_dir, f"frame_{i:04d}.png")
+                imageio.imwrite(fname, frame)
+                saved_count += 1
+
+        if saved_count == 0:
+            raise RuntimeError("[WAN] ❌ No frames saved — latent decode failed or returned NaNs")
+
+        printt(f"[WAN] ✅ Saved {saved_count} frames, invoking ffmpeg @ {fps} fps …")
 
         cmd = [
             "ffmpeg", "-y", "-loglevel", "error",
@@ -398,9 +417,15 @@ class WANEngine:
             "-c:v", "libx264", "-pix_fmt", "yuv420p", out_path
         ]
         subprocess.check_call(cmd)
-        shutil.rmtree(frames_dir)
+
         printt(f"[WAN] ✅ MP4 written: {out_path}")
+
+        if not keep_frames:
+            printt(f"[WAN] 🧹 Cleaning up frames in {frames_dir}")
+            shutil.rmtree(frames_dir)
+
         return out_path
+
 
 # ---- Audio helpers (Bark/XTTS/gTTS) ----
 def make_tts_wav(text: str, out_wav: str, lang: str = 'en', tts_backend: str = 'bark', speaker: Optional[str] = None):
