@@ -30,6 +30,13 @@ from comfy.sd import load_checkpoint_guess_config
 # CLIP for IPAdapter
 from transformers import CLIPImageProcessor, CLIPVisionModel,AutoTokenizer
 
+# cached tokenizer
+_TOKENIZER = None
+def get_tokenizer(name="google/umt5-xxl"):
+    global _TOKENIZER
+    if _TOKENIZER is None:
+        _TOKENIZER = AutoTokenizer.from_pretrained(name)
+    return _TOKENIZER
 # optional libs
 try:
     import soundfile as sf
@@ -268,39 +275,47 @@ class WANEngine:
     def sample_latent(self, prompt, frames=32, width=1280, height=720,
                       guidance=7.5, steps=20, seed=None):
    
-        if self.pipe is None:
-            raise RuntimeError("Models not loaded. Call load_models() first.")
-
-         
+        
+        # device/dtype
         device = mm.get_torch_device()
-        seed = set_random_seed(seed)   # use your set_random_seed helper
+        dtype = torch.float16
+
+        # set seed (use your set_random_seed helper)
+        seed = set_random_seed(seed)
         print(f"[WAN] Sampling latent (seed={seed}) …")
 
         unet = self.pipe["unet"]
         clip = self.pipe["clip"]
         vae = self.pipe.get("vae", None)
 
-        # 1) Tokenize + encode prompt -> embeddings (pos / neg)
-        
-        tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
+        # --- 1) Tokenize and encode prompt ---
+        tokenizer = get_tokenizer()
         inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
         with torch.no_grad():
-            pos_emb = clip(**inputs).last_hidden_state  # shape: (batch, seq, dim)
+            pos_emb = clip(**inputs).last_hidden_state  # (batch, seq, dim)
 
         neg_inputs = tokenizer("", return_tensors="pt").to(device)
         with torch.no_grad():
             neg_emb = clip(**neg_inputs).last_hidden_state
 
-        # 2) Wrap into comfy expected cond format: list of (cross_attn_tensor, options_dict)
+        # Wrap conds into comfy expected format: list of (tensor, dict)
+        # The dict can hold extra options if needed; minimal working format is {}
         positive = [(pos_emb, {})]
         negative = [(neg_emb, {})]
 
-        # 3) Prepare noise (latent shape: channels=4, H/8, W/8)
-        latent_shape = (1, 4, height // 8, width // 8)
-        noise = torch.randn(latent_shape, device=device, dtype=torch.float16)
-        latent_image = torch.zeros_like(noise, device=device, dtype=torch.float16)
- 
-        # 4) Call comfy sample with explicit args
+        # --- 2) Prepare noise / latent_image with time dimension ---
+        # note: UNet expects latent channels = 4, and spatial dims are /8 of image dims
+        h_lat = height // 8
+        w_lat = width  // 8
+        latent_shape = (1, 4, frames, h_lat, w_lat)
+
+        # create noise with time dim
+        noise = torch.randn(latent_shape, device=device).to(dtype)
+
+        # use zeros as initial latent_image (some Comfy builds require non-None)
+        latent_image = torch.zeros_like(noise, device=device, dtype=dtype)
+
+        # --- 3) Call comfy sampler ---
         latents = comfy_sample.sample(
             model=unet,
             noise=noise,
@@ -312,11 +327,12 @@ class WANEngine:
             negative=negative,
             latent_image=latent_image,
             denoise=1.0,
-            disable_pbar=True,
-            seed=seed,
+            disable_pbar=False,
+            seed=seed
         )
 
-        print("[WAN] ✅ Latent generated.")
+        # latents should be (1, 4, frames, h_lat, w_lat)
+        print(f"[WAN] ✅ Latent generated. Shape: {tuple(latents.shape)}")
         return latents
 
     def decode_latent_to_mp4(self, latent, out_path, fps=16):
