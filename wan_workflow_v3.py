@@ -298,7 +298,8 @@ class WANEngine:
         # 3) Prepare noise (latent shape: channels=4, H/8, W/8)
         latent_shape = (1, 4, height // 8, width // 8)
         noise = torch.randn(latent_shape, device=device, dtype=torch.float16)
-
+        latent_image = torch.zeros_like(noise, device=device, dtype=torch.float16)
+ 
         # 4) Call comfy sample with explicit args
         latents = comfy_sample.sample(
             model=unet,
@@ -309,7 +310,7 @@ class WANEngine:
             scheduler="karras",
             positive=positive,
             negative=negative,
-            latent_image=None,
+            latent_image=latent_image,
             denoise=1.0,
             disable_pbar=True,
             seed=seed,
