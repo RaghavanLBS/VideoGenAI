@@ -271,13 +271,7 @@ class WANEngine:
         if self.pipe is None:
             raise RuntimeError("Models not loaded. Call load_models() first.")
 
-        _TOKENIZER = None
-        def get_tokenizer(name="google/umt5-xxl"):
-            global _TOKENIZER
-            if _TOKENIZER is None:
-                _TOKENIZER = AutoTokenizer.from_pretrained(name)
-            return _TOKENIZER
-
+         
         device = mm.get_torch_device()
         seed = set_random_seed(seed)   # use your set_random_seed helper
         print(f"[WAN] Sampling latent (seed={seed}) …")
@@ -287,7 +281,8 @@ class WANEngine:
         vae = self.pipe.get("vae", None)
 
         # 1) Tokenize + encode prompt -> embeddings (pos / neg)
-        tokenizer = get_tokenizer()
+        
+        tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
         inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
         with torch.no_grad():
             pos_emb = clip(**inputs).last_hidden_state  # shape: (batch, seq, dim)
