@@ -102,6 +102,18 @@ DEFAULT_MODELS = {
 }
 
 # ---- utilities ----
+
+def set_random_seed(seed=None):
+    if seed is None or seed < 0:
+        seed = random.randint(0, 2**32 - 1)
+    torch.manual_seed(seed)
+    np.random.seed(seed % (2**32 - 1))
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    print(f"[WAN] Using seed: {seed}")
+    return seed
+
 def printt(*args, **kwargs):
     print("[wan2flow]", *args, **kwargs)
 
@@ -255,21 +267,46 @@ class WANEngine:
 
     def sample_latent(self, prompt, frames=32, width=1280, height=720,
                       guidance=7.5, steps=20, seed=None):
+   
         if self.pipe is None:
             raise RuntimeError("Models not loaded. Call load_models() first.")
-        seed = seed or comfy_utils.random_seed()
-        printt(f"Sampling latent (seed={seed}) …")
-        latent = comfy_sample.sample(
-            model=self.pipe,
-            prompt=prompt,
+
+        device = mm.get_torch_device()
+        seed = set_random_seed(seed)
+        print(f"[WAN] Sampling latent (seed={seed}) …")
+
+        unet = self.pipe["unet"]
+        vae  = self.pipe["vae"]
+        clip = self.pipe["clip"]
+
+        # === 1️⃣ Encode text prompt ===
+        inputs = clip.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
+        with torch.no_grad():
+            pos_cond = clip.encoder(**inputs).last_hidden_state
+            neg_cond = clip.encoder(**clip.tokenizer("", return_tensors="pt").to(device)).last_hidden_state
+
+        # === 2️⃣ Create latent noise ===
+        latent_shape = (1, 4, height // 8, width // 8)
+        noise = torch.randn(latent_shape, device=device, dtype=torch.float16)
+
+        # === 3️⃣ Sample diffusion ===
+        latents = comfy_sample.sample(
+            model=unet,
+            noise=noise,
             steps=steps,
-            width=width,
-            height=height,
-            seed=seed,
             cfg=guidance,
+            sampler_name="dpmpp_2m",
+            scheduler="karras",
+            positive=pos_cond,
+            negative=neg_cond,
+            latent_image=None,
+            denoise=1.0,
+            disable_pbar=True,
+            seed=seed,
         )
-        printt("✅ Latent generated.")
-        return latent
+
+        print("[WAN] ✅ Latent generated.")
+        return latents
 
     def decode_latent_to_mp4(self, latent, out_path, fps=16):
         printt("Decoding latent → frames → MP4 …")
