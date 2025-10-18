@@ -21,6 +21,10 @@ import comfy.model_management as mm
 import comfy.sample as comfy_sample
 import comfy.model_management as mm
 import comfy.utils as comfy_utils
+import torch
+
+from diffusers_load import load_diffusers
+from comfy.sd import load_checkpoint_guess_config
 
 
 # CLIP for IPAdapter
@@ -196,15 +200,29 @@ class WANEngine:
             self.comfy_loaded = False
 
     def load_models(self, device="cuda", high: Optional[Path] = None, low: Optional[Path] = None, vae: Optional[Path] = None, text_encoder: Optional[Path] = None, use_ip_adapter: bool = False):
-        printt("Loading WAN 2.2 14 B models via ComfyUI engine…")
-        from diffusers import AutoencoderKL, UNet2DConditionModel
-        from transformers import T5EncoderModel
+        print("[WAN] Loading UNet, VAE, and Text Encoder...")
 
-        vae = AutoencoderKL.from_single_file(vae, torch_dtype=torch.float16).to(device)
-        unet = UNet2DConditionModel.from_single_file(high, torch_dtype=torch.float16).to(device)
-        clip = T5EncoderModel.from_pretrained(text_encoder).to(device)
-        printt("✅ WAN 2.2 models loaded.")
-        return {"vae": vae, "unet": unet, "clip": clip}
+        # Load UNet (WAN2 high noise)
+        unet_info = load_checkpoint_guess_config(high, output_vae=True, output_clip=True)
+        unet = unet_info["model"]
+
+        # Load the rest using your diffusers_load helper
+        unet_alt, clip, vae_model = load_diffusers("models", output_vae=True, output_clip=True)
+
+        self.pipe = {
+            "unet": unet,
+            "unet_alt": unet_alt,
+            "vae": vae_model,
+            "clip": clip
+        }
+
+        # Move everything to GPU safely
+        dev = mm.get_torch_device()
+        for key, m in self.pipe.items():
+            if m is not None:
+                m.to(dev)
+
+        print("[WAN] ✅ All model components loaded on", dev)
          
         
 
