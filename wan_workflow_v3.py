@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import torch, imageio  
 from PIL import Image
-import torch
+ 
 import torch.nn.functional as F
 # at top of wan2_workflow_v3.py
 import sys
@@ -21,7 +22,7 @@ import comfy.model_management as mm
 import comfy.sample as comfy_sample
 import comfy.model_management as mm
 import comfy.utils as comfy_utils
-import torch
+ 
 
 from comfy.diffusers_load import load_diffusers
 from comfy.sd import load_checkpoint_guess_config
@@ -370,6 +371,12 @@ class WANEngine:
                     z = latent[:, :, i, :, :]
                 else:
                     z = latent
+                # inside decode_latent_to_mp4(), before vae.decode()
+                if z.shape[1] == 16:
+                    print("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode …")
+                    proj = torch.nn.Conv2d(16, 4, kernel_size=1).to(z.device, z.dtype)
+                    with torch.no_grad():
+                        z = proj(z
                 recon = vae.decode(z)
             if isinstance(recon, torch.Tensor):
                 recon = recon.detach().cpu()
@@ -486,37 +493,46 @@ def refine_latent(latent: torch.Tensor,
                   camera_hint: Optional[str] = None,
                   lighting_hint: Optional[str] = None) -> torch.Tensor:
     """
-    Post-process latent to smooth motion and camera continuity.
-    Also gently blends boundaries between chunk segments (temporal smoothing).
+    Safe latent refinement (works for 3D, 4D, or 5D tensors).
+    Adds temporal smoothing and mean normalization.
     """
     latent = latent.clone()
     dtype = latent.dtype
     if dtype == torch.float16:
         latent = latent.float()
 
+    # --- Normalize dimensions ---
+    # Expected: (B, C, T, H, W)
+    if latent.dim() == 5:
+        pass  # correct shape
+    elif latent.dim() == 4:
+        latent = latent.unsqueeze(2)  # (B, C, 1, H, W)
+    elif latent.dim() == 3:
+        latent = latent.unsqueeze(0).unsqueeze(2)  # (1, C, 1, H, W)
+    else:
+        raise ValueError(f"[WAN] Unexpected latent shape {latent.shape}")
+
     p = (feedback_prompt or "").lower()
-    kernel = 3
-    if "smooth" in p or "gentle" in p:
-        kernel = 5
+    kernel = 5 if ("smooth" in p or "gentle" in p) else 3
     pad = kernel // 2
 
-    # === 1️⃣ temporal smoothing (helps blend chunk joins) ===
-    # apply light temporal blur on latent channels
-    latent_4d = latent.unsqueeze(0) if latent.dim() == 4 else latent  # (1, C, T, H, W)
-    smooth_temporal = F.avg_pool3d(latent_4d, kernel_size=(3, 1, 1), stride=1, padding=(1, 0, 0))
-    latent = (1 - strength * 0.6) * latent + (strength * 0.6) * smooth_temporal.squeeze(0)
+    # --- Temporal smoothing (3-frame average) ---
+    if latent.shape[2] > 1:
+        smoothed = F.avg_pool3d(latent, kernel_size=(3, 1, 1), stride=1, padding=(1, 0, 0))
+        latent = (1 - strength * 0.6) * latent + (strength * 0.6) * smoothed
 
-    # === 2️⃣ gentle per-frame mean correction ===
-    mean_per_frame = latent.mean(dim=[1, 2, 3], keepdim=True)
+    # --- Mean balance across frames ---
+    mean_per_frame = latent.mean(dim=[1, 2, 3, 4], keepdim=True)
     global_mean = mean_per_frame.mean()
     latent = latent + (global_mean - mean_per_frame) * 0.3
 
-    # === 3️⃣ camera & zoom hints ===
+    # --- Optional: Camera & zoom hints ---
     if camera_hint:
         if "pan left" in camera_hint:
             latent = torch.roll(latent, shifts=-2, dims=-1)
         elif "pan right" in camera_hint:
             latent = torch.roll(latent, shifts=2, dims=-1)
+
     if "zoom in" in p:
         latent = latent * 1.02
     elif "zoom out" in p:
