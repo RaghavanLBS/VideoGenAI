@@ -452,33 +452,52 @@ def save_latent(latent: torch.Tensor, path: Path):
 def load_latent(path: Path) -> torch.Tensor:
     return torch.load(path)
 
-def refine_latent(latent: torch.Tensor, feedback_prompt: str = "", strength: float = 0.35, camera_hint: Optional[str] = None, lighting_hint: Optional[str] = None) -> torch.Tensor:
+def refine_latent(latent: torch.Tensor,
+                  feedback_prompt: str = "",
+                  strength: float = 0.35,
+                  camera_hint: Optional[str] = None,
+                  lighting_hint: Optional[str] = None) -> torch.Tensor:
+    """
+    Post-process latent to smooth motion and camera continuity.
+    Also gently blends boundaries between chunk segments (temporal smoothing).
+    """
     latent = latent.clone()
     dtype = latent.dtype
     if dtype == torch.float16:
         latent = latent.float()
-    p = (feedback_prompt or '').lower()
+
+    p = (feedback_prompt or "").lower()
     kernel = 3
-    if 'smooth' in p or 'gentle' in p:
+    if "smooth" in p or "gentle" in p:
         kernel = 5
     pad = kernel // 2
-    latent_t = latent.unsqueeze(0) if latent.dim() == 3 else latent
-    smoothed = F.avg_pool3d(latent_t.unsqueeze(0), kernel_size=(kernel,1,1), stride=1, padding=(pad,0,0)).squeeze(0)
-    latent = (1 - strength) * latent + strength * smoothed
-    mean_per_frame = latent.mean(dim=[1,2,3], keepdim=True)
+
+    # === 1️⃣ temporal smoothing (helps blend chunk joins) ===
+    # apply light temporal blur on latent channels
+    latent_4d = latent.unsqueeze(0) if latent.dim() == 4 else latent  # (1, C, T, H, W)
+    smooth_temporal = F.avg_pool3d(latent_4d, kernel_size=(3, 1, 1), stride=1, padding=(1, 0, 0))
+    latent = (1 - strength * 0.6) * latent + (strength * 0.6) * smooth_temporal.squeeze(0)
+
+    # === 2️⃣ gentle per-frame mean correction ===
+    mean_per_frame = latent.mean(dim=[1, 2, 3], keepdim=True)
     global_mean = mean_per_frame.mean()
     latent = latent + (global_mean - mean_per_frame) * 0.3
-    if camera_hint and 'pan left' in camera_hint:
-        latent = torch.roll(latent, shifts=-2, dims=-1)
-    if camera_hint and 'pan right' in camera_hint:
-        latent = torch.roll(latent, shifts=2, dims=-1)
-    if 'zoom in' in p:
+
+    # === 3️⃣ camera & zoom hints ===
+    if camera_hint:
+        if "pan left" in camera_hint:
+            latent = torch.roll(latent, shifts=-2, dims=-1)
+        elif "pan right" in camera_hint:
+            latent = torch.roll(latent, shifts=2, dims=-1)
+    if "zoom in" in p:
         latent = latent * 1.02
-    if 'zoom out' in p:
+    elif "zoom out" in p:
         latent = latent * 0.98
+
     latent = latent.clamp(-10.0, 10.0)
     if dtype == torch.float16:
         latent = latent.half()
+
     return latent
 
 
