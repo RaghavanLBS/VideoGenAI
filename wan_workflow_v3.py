@@ -23,7 +23,7 @@ import comfy.model_management as mm
 import comfy.utils as comfy_utils
 import torch
 
-from diffusers_load import load_diffusers
+from comfy.diffusers_load import load_diffusers
 from comfy.sd import load_checkpoint_guess_config
 
 
