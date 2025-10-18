@@ -271,31 +271,40 @@ class WANEngine:
         if self.pipe is None:
             raise RuntimeError("Models not loaded. Call load_models() first.")
 
+        _TOKENIZER = None
+        def get_tokenizer(name="google/umt5-xxl"):
+            global _TOKENIZER
+            if _TOKENIZER is None:
+                _TOKENIZER = AutoTokenizer.from_pretrained(name)
+            return _TOKENIZER
+
         device = mm.get_torch_device()
-        seed = set_random_seed(seed)
+        seed = set_random_seed(seed)   # use your set_random_seed helper
         print(f"[WAN] Sampling latent (seed={seed}) …")
 
         unet = self.pipe["unet"]
-        vae  = self.pipe["vae"]
         clip = self.pipe["clip"]
+        vae = self.pipe.get("vae", None)
 
-        # === 1️⃣ Encode text prompt ===
-         
-        tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
-
+        # 1) Tokenize + encode prompt -> embeddings (pos / neg)
+        tokenizer = get_tokenizer()
         inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
         with torch.no_grad():
-            pos_cond = clip(**inputs).last_hidden_state
+            pos_emb = clip(**inputs).last_hidden_state  # shape: (batch, seq, dim)
+
         neg_inputs = tokenizer("", return_tensors="pt").to(device)
         with torch.no_grad():
-            neg_cond = clip(**neg_inputs).last_hidden_state
-        positive = [(pos_cond, 1.0)]
-        negative = [(neg_cond, 1.0)]
-        # === 2️⃣ Create latent noise ===
+            neg_emb = clip(**neg_inputs).last_hidden_state
+
+        # 2) Wrap into comfy expected cond format: list of (cross_attn_tensor, options_dict)
+        positive = [(pos_emb, {})]
+        negative = [(neg_emb, {})]
+
+        # 3) Prepare noise (latent shape: channels=4, H/8, W/8)
         latent_shape = (1, 4, height // 8, width // 8)
         noise = torch.randn(latent_shape, device=device, dtype=torch.float16)
 
-        # === 3️⃣ Sample diffusion ===
+        # 4) Call comfy sample with explicit args
         latents = comfy_sample.sample(
             model=unet,
             noise=noise,
