@@ -1,36 +1,30 @@
-# =====================================================
-# WAN2.2 A40 Docker Image (Lightweight + Mount Models)
-# =====================================================
-FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.9.0-cuda12.8-cudnn9-runtime
 
-# -----------------------------------------------------
-# System packages
-# -----------------------------------------------------
-RUN apt-get update && apt-get install -y ffmpeg git wget && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Prevent interactive apt prompts
+ENV DEBIAN_FRONTEND=noninteractive
 
-# -----------------------------------------------------
-# Working directory
-# -----------------------------------------------------
-WORKDIR /app
-COPY . /app
+RUN apt-get update && apt-get install -y \
+    git wget ffmpeg libsndfile1 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
 
-# -----------------------------------------------------
-# Python dependencies
-# -----------------------------------------------------
-RUN pip install --upgrade pip && \
-    pip install diffusers transformers safetensors gtts moviepy streamlit tqdm pillow rich
+WORKDIR /workspace
 
-# -----------------------------------------------------
-# Environment configuration
-# -----------------------------------------------------
-ENV STREAMLIT_SERVER_HEADLESS=true
-ENV STREAMLIT_SERVER_PORT=8501
-ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
+# Install dependencies
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install \
+    transformers diffusers safetensors accelerate \
+    pillow tqdm numpy soundfile gtts streamlit \
+    torch torchvision torchaudio \
+    xformers flash-attn --no-build-isolation || true
 
-# -----------------------------------------------------
-# Expose Streamlit
-# -----------------------------------------------------
-EXPOSE 8501
+# Clone ComfyUI for backend inference
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git
+RUN cd ComfyUI && pip install -r requirements.txt && pip install -e .
 
-ENTRYPOINT ["streamlit", "run", "wan2_ui_json.py"]
+# Copy your workflow and UI
+COPY wan2_workflow_v3.py /workspace/
+COPY wan2_ui_v3.py /workspace/
+COPY setup.sh /workspace/
+
+# Default command starts the Streamlit UI
+CMD ["streamlit", "run", "wan2_ui_v3.py", "--server.address=0.0.0.0"]
