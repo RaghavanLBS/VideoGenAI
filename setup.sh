@@ -22,7 +22,7 @@ pip install --upgrade pip setuptools wheel
 pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 pip install transformers diffusers safetensors accelerate ftfy
 pip install pillow tqdm numpy soundfile gtts streamlit
-pip install xformers flash-attn --no-build-isolation
+pip install xformers flash-attn==2.5.8 --no-build-isolation
 
  
 
@@ -33,7 +33,7 @@ if [ ! -d "ComfyUI" ]; then
 fi
 cd ComfyUI
 pip install -r requirements.txt || true
-pip install -e .
+#pip install -e .
 cd "$BASE_DIR"
 
 # ✅ Model downloads (Comfy-Org WAN2.2)

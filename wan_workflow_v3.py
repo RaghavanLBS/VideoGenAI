@@ -200,9 +200,9 @@ class WANEngine:
         from diffusers import AutoencoderKL, UNet2DConditionModel
         from transformers import T5EncoderModel
 
-        vae = AutoencoderKL.from_single_file(vae_path, torch_dtype=torch.float16).to(device)
-        unet = UNet2DConditionModel.from_single_file(model_path, torch_dtype=torch.float16).to(device)
-        clip = T5EncoderModel.from_pretrained(clip_path).to(device)
+        vae = AutoencoderKL.from_single_file(vae, torch_dtype=torch.float16).to(device)
+        unet = UNet2DConditionModel.from_single_file(high, torch_dtype=torch.float16).to(device)
+        clip = T5EncoderModel.from_pretrained(text_encoder).to(device)
         printt("✅ WAN 2.2 models loaded.")
         return {"vae": vae, "unet": unet, "clip": clip}
          
