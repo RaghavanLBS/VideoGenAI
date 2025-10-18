@@ -289,7 +289,8 @@ class WANEngine:
         neg_inputs = tokenizer("", return_tensors="pt").to(device)
         with torch.no_grad():
             neg_cond = clip(**neg_inputs).last_hidden_state
-
+        positive = [(pos_cond, 1.0)]
+        negative = [(neg_cond, 1.0)]
         # === 2️⃣ Create latent noise ===
         latent_shape = (1, 4, height // 8, width // 8)
         noise = torch.randn(latent_shape, device=device, dtype=torch.float16)
@@ -302,8 +303,8 @@ class WANEngine:
             cfg=guidance,
             sampler_name="dpmpp_2m",
             scheduler="karras",
-            positive=pos_cond,
-            negative=neg_cond,
+            positive=positive,
+            negative=negative,
             latent_image=None,
             denoise=1.0,
             disable_pbar=True,
