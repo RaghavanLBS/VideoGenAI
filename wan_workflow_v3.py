@@ -280,7 +280,7 @@ class WANEngine:
 
 
     def sample_latent(self, prompt, frames=32, width=1280, height=720,
-                      guidance=7.5, steps=10, seed=None, prev_latent_context= Optional[torch.Tensor] = None):
+                      guidance=7.5, steps=10, seed=None, prev_latent_context:Optional[torch.Tensor] = None):
    
         
         # device/dtype
@@ -618,6 +618,7 @@ def render_scene(engine: WANEngine, prompt: str, out_base: str, frames: int, wid
     printt(f"[WAN] ✅ Decoded {len(decoded_frames)} frames")
 
     # --- save frames to temporary dir for ffmpeg ---
+    import imageio, numpy as np
     tmpd = tempfile.mkdtemp(prefix=f"wan_decode_{out_base.name}_")
     for i, frame in enumerate(decoded_frames):
         path = os.path.join(tmpd, f"frame_{i:04d}.png")
