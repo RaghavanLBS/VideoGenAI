@@ -560,6 +560,19 @@ def render_scene(engine: WANEngine, prompt: str, out_base: str, frames: int, wid
     refined = refine_latent(latent, feedback_prompt="", strength=0.28)
     refined_path = CACHE_DIR / f"{out_base.name}.refined.latent.pt"
     save_latent(refined, refined_path)
+    # full_latents: (1, C, frames, h, w)
+    frames = full_latents.shape[2]
+    decoded_frames = []
+    for i in range(frames):
+        latent_frame = full_latents[:, :, i:i+1, :, :]  # still (1,C,1,h,w) but VAE may expect (1,C,h,w)
+        # adapt to VAE input shape if necessary (some have to reshape)
+        # If VAE expects (1, C, h, w): squeeze time
+        lf = latent_frame.squeeze(2)  # (1,C,h,w)
+        with torch.no_grad():
+            img = vae.decode(lf)  # depends on your VAE API
+        decoded_frames.append(img.cpu().numpy())
+    # then save frames and make video
+
     frames_pil = engine.decode_latent_to_frames(refined)
     tmpd = tempfile.mkdtemp(prefix=f"wan_decode_{out_base.name}_")
     for i, pil in enumerate(frames_pil):
