@@ -372,11 +372,11 @@ class WANEngine:
                 else:
                     z = latent
                 # inside decode_latent_to_mp4(), before vae.decode()
-                if z.shape[1] == 16:
-                    print("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode …")
-                    proj = torch.nn.Conv2d(16, 4, kernel_size=1).to(z.device, z.dtype)
-                    with torch.no_grad():
-                        z = proj(z
+            if z.shape[1] == 16:
+                print("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode …")
+                proj = torch.nn.Conv2d(16, 4, kernel_size=1).to(z.device, z.dtype)
+                with torch.no_grad():
+                    z = proj(z)
                 recon = vae.decode(z)
             if isinstance(recon, torch.Tensor):
                 recon = recon.detach().cpu()
