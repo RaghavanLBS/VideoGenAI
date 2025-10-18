@@ -219,11 +219,23 @@ class WANEngine:
         from diffusers import AutoencoderKL
         vae = AutoencoderKL.from_config("stabilityai/sd-vae-ft-mse")
         vae.load_state_dict(vae_state, strict=False)
+        from safetensors.torch import load_file
+        from transformers import T5EncoderModel, T5Config
+        
+        clip_weights = load_file("models/umt5_xxl_fp16.safetensors")
 
-        clip = comfy.sd.load_clip("models/umt5_xxl_fp16.safetensors")
+        # Initialize a matching model config
+        config = T5Config.from_pretrained("google/umt5-xxl", torch_dtype="float16")
+        clip = T5EncoderModel(config)
 
-        self.pipe = {"unet": unet, "vae": vae_model, "clip": clip}
-        print(f"[WAN] ✅ Models loaded successfully on {dev}")
+        # Load weights
+        missing, unexpected = clip.load_state_dict(clip_weights, strict=False)
+        print(f"[WAN] CLIP/T5 loaded with {len(missing)} missing and {len(unexpected)} unexpected keys.")
+
+        clip = clip.to("cuda", dtype=torch.float16)
+
+        self.pipe = {"unet": unet, "vae": vae, "clip": clip}
+        print(f"[WAN] ✅ Models loaded successfully ")
          
         
 
