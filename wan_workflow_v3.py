@@ -280,7 +280,7 @@ class WANEngine:
 
 
     def sample_latent(self, prompt, frames=32, width=1280, height=720,
-                      guidance=7.5, steps=10, seed=None):
+                      guidance=7.5, steps=10, seed=None, prev_latent_context= Optional[torch.Tensor] = None):
    
         
         # device/dtype
@@ -319,6 +319,12 @@ class WANEngine:
 
         noise = torch.randn(latent_shape, device=device, dtype=dtype)
         latent_image = torch.zeros_like(noise)
+        # Inject previous chunk latent tail (temporal carryover)
+        if prev_latent_context is not None:
+            overlap_frames = prev_latent_context.shape[2]
+            latent_image[:, :, :overlap_frames] = prev_latent_context
+            print(f"[WAN] Injected prev latent context ({overlap_frames} frames) into seed latent.")
+
 
 
         # --- 3) Call comfy sampler ---
@@ -483,18 +489,25 @@ def generate_chunked_latents(engine, prompt, total_frames=64, chunk_size=16, ove
     This function generates chunks with overlap and stitches them by crossfade.
     Returns: full_latents of shape (1, C, total_frames, H, W)
     """
+    # === replacement for generate_chunked_latents ===
+def generate_chunked_latents(engine, prompt, total_frames=64, chunk_size=16, overlap=4,
+                            width=1280, height=720, steps=12, guidance=6.5, seed=None):
+    """
+    Sequential chunked generation with latent overlap carryover.
+    Each new chunk uses the tail latents of the previous chunk to maintain temporal coherence.
+    """
     assert overlap < chunk_size
     stride = chunk_size - overlap
     chunks = []
-    seeds = []
-    base_seed = seed if seed is not None else np.random.randint(0, 2**31-1)
+    base_seed = seed if seed is not None else np.random.randint(0, 2**31 - 1)
+    prev_context = None
 
     for start in range(0, total_frames, stride):
-        # figure how many frames to request in this chunk (at end might be smaller)
         remaining = total_frames - start
         cur_size = min(chunk_size, remaining)
         seed_i = base_seed + (start // stride)
-        # ask engine to generate cur_size frames for the prompt; engine must accept frames argument
+
+        printt(f"[WAN] Generating chunk {start // stride + 1}: frames={cur_size}, seed={seed_i}")
         chunk_latent = engine.sample_latent(
             prompt=prompt,
             frames=cur_size,
@@ -502,92 +515,115 @@ def generate_chunked_latents(engine, prompt, total_frames=64, chunk_size=16, ove
             height=height,
             guidance=guidance,
             steps=steps,
-            seed=seed_i
+            seed=seed_i,
+            prev_latent_context=prev_context
         )
-        # chunk_latent shape: (1, C, cur_size, h, w)
-        chunks.append((start, chunk_latent))
-        seeds.append(seed_i)
 
-    # stitch chunks together
-    # allocate full array
-    C = chunks[0][1].shape[1]
-    h = chunks[0][1].shape[3]
-    w = chunks[0][1].shape[4]
-    full = torch.zeros((1, C, total_frames, h, w), device=chunks[0][1].device, dtype=chunks[0][1].dtype)
+        # Prepare context for next chunk (use last `overlap` frames)
+        prev_context = chunk_latent[:, :, -overlap:].detach().clone()
+        chunks.append(chunk_latent)
 
-    for idx, (start, chunk) in enumerate(chunks):
-        cur_size = chunk.shape[2]
-        end = start + cur_size
-        if idx == 0:
-            full[:, :, start:end] = chunk
-        else:
-            # blend overlap region with previous chunk
-            ov = overlap if start != 0 else 0
-            if ov > 0:
-                # indices
-                prev_start = start - (chunk_size - overlap)
-                prev_end = prev_start + chunk_size
-                overlap_start = start
-                overlap_end = start + ov
-                # blend previous tail and current head
-                prev_slice = full[:, :, overlap_start:overlap_end]
-                cur_slice = chunk[:, :, :ov]
-                # linear crossfade
-                alpha = torch.linspace(0, 1, steps=ov, device=full.device, dtype=full.dtype).reshape(1, 1, ov, 1, 1)
-                blended = prev_slice * (1 - alpha) + cur_slice * alpha
-                full[:, :, overlap_start:overlap_end] = blended
-            # write the rest (non-overlap)
-            non_overlap_start = ov
-            full[:, :, start+ov:end] = chunk[:, :, ov:cur_size]
+    # Concatenate all chunks along the temporal dimension
+    stitched = torch.cat(
+        [chunks[0]] + [c[:, :, overlap:] for c in chunks[1:]],
+        dim=2
+    )
 
-    return full
+    printt(f"[WAN] ✅ Full latent stitched: {tuple(stitched.shape)}")
+    return stitched
+
 # ---- render_scene / flows ----
+
 def render_scene(engine: WANEngine, prompt: str, out_base: str, frames: int, width: int, height: int, guidance: float, motion: float, noise_ratio: float, steps: int, seed: Optional[int], ip_emb: Optional[torch.Tensor], audio_spec: Optional[Dict[str,Any]], persona_name: Optional[str], tts_backend: str, fps: int = DEFAULT_CONFIG['default_fps']) -> Dict[str, Any]:
     out_base = Path(out_base)
     out_base.parent.mkdir(parents=True, exist_ok=True)
+
+    printt(f"[WAN] Rendering scene -> out_base={out_base}, frames={frames}, {width}x{height}, steps={steps}, seed={seed}")
+
+    # --- generate latents in chunks (use correct kwarg name total_frames) ---
     latent = generate_chunked_latents(
         engine=engine,
         prompt=prompt,
-        frames=frames,
+        total_frames=frames,   # <--- was 'frames=' previously (bug)
+        chunk_size=16,
+        overlap=4,
         width=width,
         height=height,
-        guidance=guidance,
         steps=steps,
+        guidance=guidance,
         seed=seed
     )
+
     latent_path = CACHE_DIR / f"{out_base.name}.latent.pt"
     save_latent(latent, latent_path)
+
+    # --- refine latent (in-place safe copy) ---
+    printt("[WAN] Refining latent...")
     refined = refine_latent(latent, feedback_prompt="", strength=0.28)
     refined_path = CACHE_DIR / f"{out_base.name}.refined.latent.pt"
     save_latent(refined, refined_path)
-    # full_latents: (1, C, frames, h, w)
-    frames = full_latents.shape[2]
-    decoded_frames = []
-    for i in range(frames):
-        latent_frame = full_latents[:, :, i:i+1, :, :]  # still (1,C,1,h,w) but VAE may expect (1,C,h,w)
-        # adapt to VAE input shape if necessary (some have to reshape)
-        # If VAE expects (1, C, h, w): squeeze time
-        lf = latent_frame.squeeze(2)  # (1,C,h,w)
-        with torch.no_grad():
-            img = vae.decode(lf)  # depends on your VAE API
-        decoded_frames.append(img.cpu().numpy())
-    # then save frames and make video
+    printt("[WAN] Saved refined latent:", refined_path)
 
-    frames_pil = engine.decode_latent_to_frames(refined)
+    # --- decode refined latent to frames using loaded VAE (per-frame decode to save memory) ---
+    vae = engine.pipe.get("vae", None)
+    if vae is None:
+        raise RuntimeError("No VAE model loaded in engine.pipe — ensure load_models() loaded wan_2.1_vae.safetensors")
+
+    full_latents = refined
+    total_frames = int(full_latents.shape[2])
+    decoded_frames = []
+
+    printt(f"[WAN] Decoding {total_frames} frames (per-frame) with VAE...")
+
+    for i in range(total_frames):
+        latent_frame = full_latents[:, :, i:i+1, :, :]  # (1, C, 1, H, W)
+        lf = latent_frame.squeeze(2)                    # -> (1, C, H, W)
+        with torch.no_grad():
+            # decode should return PIL-like or tensor depending on your VAE; adapt if required
+            img = vae.decode(lf)   # expected to return tensor shape (1, 3, H_img, W_img) in [-1,1] or [0,1]
+        # normalize/convert to numpy image (attempt common formats)
+        if isinstance(img, torch.Tensor):
+            img_cpu = img.detach().cpu()
+            # If VAE returns in [-1,1], convert to [0,255]
+            if img_cpu.min() < 0.0:
+                frame_np = ((img_cpu.clamp(-1,1) + 1.0) / 2.0).numpy()
+            else:
+                frame_np = img_cpu.numpy()
+            # frame_np shape (1, C, H, W)
+            frame_rgb = (np.clip(frame_np[0].transpose(1, 2, 0) * 255.0, 0, 255)).astype(np.uint8)
+            decoded_frames.append(frame_rgb)
+        else:
+            # assume PIL.Image returned
+            decoded_frames.append(np.array(img))
+
+    printt(f"[WAN] ✅ Decoded {len(decoded_frames)} frames")
+
+    # --- save frames to temporary dir for ffmpeg ---
     tmpd = tempfile.mkdtemp(prefix=f"wan_decode_{out_base.name}_")
-    for i, pil in enumerate(frames_pil):
-        pil.save(os.path.join(tmpd, f"frame_{i:04d}.png"))
+    for i, frame in enumerate(decoded_frames):
+        path = os.path.join(tmpd, f"frame_{i:04d}.png")
+        imageio.imwrite(path, frame)
+    printt(f"[WAN] Saved frames to {tmpd}")
+
+    # --- assemble mp4 (no audio) ---
     mp4_noaudio = str(out_base.with_suffix('.noaudio.mp4'))
+    video_fps = fps if fps and fps > 0 else max(1, int(total_frames / 4))
     cmd = [
         'ffmpeg', '-y', '-loglevel', 'error',
-        '-framerate', str(fps),
+        '-framerate', str(video_fps),
         '-i', os.path.join(tmpd, 'frame_%04d.png'),
         '-c:v', 'libx264', '-pix_fmt', 'yuv420p', mp4_noaudio
     ]
     printt('Running ffmpeg to produce mp4 (no audio) for', out_base)
     subprocess.check_call(cmd)
+    printt('[WAN] Produced mp4 (no audio):', mp4_noaudio)
+
+    # cleanup frames temp dir
     shutil.rmtree(tmpd)
+
+    # --- handle audio (dialogue / ambient) and mux ---
     final_mp4 = str(out_base.with_suffix('.final.mp4'))
+
     if audio_spec and ('dialogue' in audio_spec or 'audio_summary' in audio_spec):
         dialogue = audio_spec.get('dialogue')
         audio_summary = audio_spec.get('audio_summary')
@@ -598,19 +634,25 @@ def render_scene(engine: WANEngine, prompt: str, out_base: str, frames: int, wid
             tts_lang = dialogue.get('lang', 'en')
         elif isinstance(dialogue, str):
             dialogue_text = dialogue
+
+        dialogue_wav = None
         if dialogue_text:
             dialogue_wav = str(out_base.with_suffix('.dialogue.wav'))
+            printt("[WAN] Generating TTS for dialogue...")
             make_tts_wav(dialogue_text, dialogue_wav, lang=tts_lang, tts_backend=tts_backend)
-        else:
-            dialogue_wav = None
+
         ambient_wav = None
         if audio_summary and isinstance(audio_summary, str):
             candidate = ASSETS_DIR / (audio_summary + '.wav')
             if candidate.exists():
                 ambient_wav = str(candidate)
+
         mixed_wav = str(out_base.with_suffix('.mixed.wav'))
+
         if dialogue_wav:
+            printt("[WAN] Mixing dialogue with ambient (if present)...")
             mix_ambient(dialogue_wav, ambient_wav, mixed_wav)
+            printt("[WAN] Muxing audio/video...")
             mux_audio_video(mp4_noaudio, mixed_wav, final_mp4)
         else:
             if ambient_wav:
@@ -618,8 +660,13 @@ def render_scene(engine: WANEngine, prompt: str, out_base: str, frames: int, wid
             else:
                 shutil.copy(mp4_noaudio, final_mp4)
     else:
+        # no audio requested → copy noaudio to final
         shutil.copy(mp4_noaudio, final_mp4)
+
+    printt("[WAN] Final video at:", final_mp4)
+
     return {"latent_path": str(latent_path), "refined_path": str(refined_path), "final_mp4": final_mp4}
+
 
 def generate_clip(prompt: str, out_name: str, seed: Optional[int] = None, frames: Optional[int] = None, resolution: Optional[str] = None, width: Optional[int] = None, height: Optional[int] = None, precision: str = 'fp16', guidance_scale: float = 7.5, motion_strength: float = 1.0, noise_ratio: float = 0.5, steps: int = 20, gpu_profile: Optional[str] = None, use_control_adapter: bool = False, ip_adapter_emb: Optional[torch.Tensor] = None, persona: Optional[str] = None, tts_backend: str = 'bark') -> Dict[str, Any]:
     frames = frames or DEFAULT_CONFIG['default_frames']
