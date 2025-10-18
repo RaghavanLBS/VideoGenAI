@@ -28,7 +28,7 @@ from comfy.sd import load_checkpoint_guess_config
 
 
 # CLIP for IPAdapter
-from transformers import CLIPImageProcessor, CLIPVisionModel
+from transformers import CLIPImageProcessor, CLIPVisionModel,AutoTokenizer
 
 # optional libs
 try:
@@ -280,10 +280,15 @@ class WANEngine:
         clip = self.pipe["clip"]
 
         # === 1️⃣ Encode text prompt ===
-        inputs = clip.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
+         
+        tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
+
+        inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(device)
         with torch.no_grad():
-            pos_cond = clip.encoder(**inputs).last_hidden_state
-            neg_cond = clip.encoder(**clip.tokenizer("", return_tensors="pt").to(device)).last_hidden_state
+            pos_cond = clip(**inputs).last_hidden_state
+        neg_inputs = tokenizer("", return_tensors="pt").to(device)
+        with torch.no_grad():
+            neg_cond = clip(**neg_inputs).last_hidden_state
 
         # === 2️⃣ Create latent noise ===
         latent_shape = (1, 4, height // 8, width // 8)
