@@ -19,7 +19,7 @@ sys.path.append("ComfyUI")  # so comfy modules can be imported
 
 import comfy.model_management as mm
 import comfy.sample as comfy_sample
-import comfy.sd as comfy_sd
+import comfy.model_management as mm
 import comfy.utils as comfy_utils
 
 
@@ -198,12 +198,17 @@ class WANEngine:
     def load_models(self, device="cuda", high: Optional[Path] = None, low: Optional[Path] = None, vae: Optional[Path] = None, text_encoder: Optional[Path] = None, use_ip_adapter: bool = False):
         printt("Loading WAN 2.2 14 B models via ComfyUI engine…")
         mm.cleanup_models()
-        self.pipe = comfy_sd.load_model_weights(
-            model_path=str(self.models_dir / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"),
-            vae_path=str(self.models_dir / "wan_2.1_vae.safetensors"),
-            clip_path=str(self.models_dir / "umt5_xxl_fp16.safetensors"),
-            device=device,
+        net = mm.load_model(
+            str(self.models_dir / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors")
         )
+        vae = mm.load_vae(
+            str(self.models_dir / "wan_2.1_vae.safetensors")
+        )
+        clip = mm.load_clip(
+            str(self.models_dir / "umt5_xxl_fp16.safetensors")
+        )
+
+        self.pipe = {"unet": unet, "vae": vae, "clip": clip}
         printt("✅ WAN 2.2 models loaded.")
 
     def _register_placeholder_paths(self, high, low, vae, text_encoder):
