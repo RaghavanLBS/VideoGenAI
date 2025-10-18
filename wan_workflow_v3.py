@@ -446,6 +446,7 @@ def generate_clip(prompt: str, out_name: str, seed: Optional[int] = None, frames
     profile = detect_gpu_profile(gpu_profile)
     printt('Hardware profile:', profile)
     engine = WANEngine(models_dir=MODELS_DIR, device=profile['device'], precision=precision)
+    engine.load_models(high=DEFAULT_MODELS['unet_high'], low=DEFAULT_MODELS['unet_low'], vae=DEFAULT_MODELS['vae'], text_encoder=DEFAULT_MODELS['text_encoder'])
     audio_spec = {'dialogue': {'text': prompt, 'lang': 'en'}}
     res = render_scene(engine, prompt=prompt, out_base=str(out_base), frames=frames, width=width, height=height, guidance=guidance_scale, motion=motion_strength, noise_ratio=noise_ratio, steps=steps, seed=seed, ip_emb=ip_adapter_emb, audio_spec=audio_spec, persona_name=persona, tts_backend=tts_backend, fps=DEFAULT_CONFIG['default_fps'])
     adapted = adapt_to_aspect(res['final_mp4'], width, height, out_mp4=str(out_base.with_suffix('.final.adapted.mp4')))
@@ -548,7 +549,7 @@ def main():
         printt('Persona initialized and saved:', args.persona)
         return
     if args.mode == 'generate':
-        engine.load_models(high=DEFAULT_MODELS['unet_high'], low=DEFAULT_MODELS['unet_low'], vae=DEFAULT_MODELS['vae'], text_encoder=DEFAULT_MODELS['text_encoder'])
+        
         res = generate_clip(
             prompt=args.prompt,
             out_name=args.out,
