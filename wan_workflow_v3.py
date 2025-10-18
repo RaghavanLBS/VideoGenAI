@@ -197,19 +197,16 @@ class WANEngine:
 
     def load_models(self, device="cuda", high: Optional[Path] = None, low: Optional[Path] = None, vae: Optional[Path] = None, text_encoder: Optional[Path] = None, use_ip_adapter: bool = False):
         printt("Loading WAN 2.2 14 B models via ComfyUI engine…")
-        mm.cleanup_models()
-        net = mm.load_model(
-            str(self.models_dir / "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors")
-        )
-        vae = mm.load_vae(
-            str(self.models_dir / "wan_2.1_vae.safetensors")
-        )
-        clip = mm.load_clip(
-            str(self.models_dir / "umt5_xxl_fp16.safetensors")
-        )
+        from diffusers import AutoencoderKL, UNet2DConditionModel
+        from transformers import T5EncoderModel
 
-        self.pipe = {"unet": unet, "vae": vae, "clip": clip}
+        vae = AutoencoderKL.from_single_file(vae_path, torch_dtype=torch.float16).to(device)
+        unet = UNet2DConditionModel.from_single_file(model_path, torch_dtype=torch.float16).to(device)
+        clip = T5EncoderModel.from_pretrained(clip_path).to(device)
         printt("✅ WAN 2.2 models loaded.")
+        return {"vae": vae, "unet": unet, "clip": clip}
+         
+        
 
     def _register_placeholder_paths(self, high, low, vae, text_encoder):
         printt("WANEngine: (placeholder) registering model paths")
