@@ -365,6 +365,11 @@ class WANEngine:
         frames_dir = tempfile.mkdtemp(prefix="wan_decode_")
 
         T = latent.shape[2] if latent.dim() == 5 else 1
+        needs_projection = latent.shape[1] == 16
+        proj = None
+        if needs_projection:
+            print("[WAN] ⚙️ Projecting latent channels 16 → 4 before VAE decode (applies to all frames) …")
+            proj = torch.nn.Conv2d(16, 4, kernel_size=1).to(latent.device, latent.dtype)
         for i in range(T):
             with torch.no_grad():
                 if latent.dim() == 5:
