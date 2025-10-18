@@ -30,6 +30,9 @@ from comfy.sd import load_checkpoint_guess_config
 # CLIP for IPAdapter
 from transformers import CLIPImageProcessor, CLIPVisionModel,AutoTokenizer
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 # cached tokenizer
 _TOKENIZER = None
 def get_tokenizer(name="google/umt5-xxl"):
@@ -272,8 +275,12 @@ class WANEngine:
         self.models = {}
         torch.cuda.empty_cache()
 
+
+    
+
+
     def sample_latent(self, prompt, frames=32, width=1280, height=720,
-                      guidance=7.5, steps=20, seed=None):
+                      guidance=7.5, steps=10, seed=None):
    
         
         # device/dtype
@@ -320,7 +327,7 @@ class WANEngine:
             noise=noise,
             steps=steps,
             cfg=guidance,
-            sampler_name="dpmpp_2m",
+            sampler_name="euler_a",#dpmpp_2m",
             scheduler="karras",
             positive=positive,
             negative=negative,
@@ -468,11 +475,78 @@ def refine_latent(latent: torch.Tensor, feedback_prompt: str = "", strength: flo
         latent = latent.half()
     return latent
 
+
+def generate_chunked_latents(engine, prompt, total_frames=64, chunk_size=16, overlap=4,
+                            width=1280, height=720, steps=12, guidance=6.5, seed=None):
+    """
+    engine.sample_latent must accept frames argument (we force it to generate chunk_size frames).
+    This function generates chunks with overlap and stitches them by crossfade.
+    Returns: full_latents of shape (1, C, total_frames, H, W)
+    """
+    assert overlap < chunk_size
+    stride = chunk_size - overlap
+    chunks = []
+    seeds = []
+    base_seed = seed if seed is not None else np.random.randint(0, 2**31-1)
+
+    for start in range(0, total_frames, stride):
+        # figure how many frames to request in this chunk (at end might be smaller)
+        remaining = total_frames - start
+        cur_size = min(chunk_size, remaining)
+        seed_i = base_seed + (start // stride)
+        # ask engine to generate cur_size frames for the prompt; engine must accept frames argument
+        chunk_latent = engine.sample_latent(
+            prompt=prompt,
+            frames=cur_size,
+            width=width,
+            height=height,
+            guidance=guidance,
+            steps=steps,
+            seed=seed_i
+        )
+        # chunk_latent shape: (1, C, cur_size, h, w)
+        chunks.append((start, chunk_latent))
+        seeds.append(seed_i)
+
+    # stitch chunks together
+    # allocate full array
+    C = chunks[0][1].shape[1]
+    h = chunks[0][1].shape[3]
+    w = chunks[0][1].shape[4]
+    full = torch.zeros((1, C, total_frames, h, w), device=chunks[0][1].device, dtype=chunks[0][1].dtype)
+
+    for idx, (start, chunk) in enumerate(chunks):
+        cur_size = chunk.shape[2]
+        end = start + cur_size
+        if idx == 0:
+            full[:, :, start:end] = chunk
+        else:
+            # blend overlap region with previous chunk
+            ov = overlap if start != 0 else 0
+            if ov > 0:
+                # indices
+                prev_start = start - (chunk_size - overlap)
+                prev_end = prev_start + chunk_size
+                overlap_start = start
+                overlap_end = start + ov
+                # blend previous tail and current head
+                prev_slice = full[:, :, overlap_start:overlap_end]
+                cur_slice = chunk[:, :, :ov]
+                # linear crossfade
+                alpha = torch.linspace(0, 1, steps=ov, device=full.device, dtype=full.dtype).reshape(1, 1, ov, 1, 1)
+                blended = prev_slice * (1 - alpha) + cur_slice * alpha
+                full[:, :, overlap_start:overlap_end] = blended
+            # write the rest (non-overlap)
+            non_overlap_start = ov
+            full[:, :, start+ov:end] = chunk[:, :, ov:cur_size]
+
+    return full
 # ---- render_scene / flows ----
 def render_scene(engine: WANEngine, prompt: str, out_base: str, frames: int, width: int, height: int, guidance: float, motion: float, noise_ratio: float, steps: int, seed: Optional[int], ip_emb: Optional[torch.Tensor], audio_spec: Optional[Dict[str,Any]], persona_name: Optional[str], tts_backend: str, fps: int = DEFAULT_CONFIG['default_fps']) -> Dict[str, Any]:
     out_base = Path(out_base)
     out_base.parent.mkdir(parents=True, exist_ok=True)
-    latent = engine.sample_latent(
+    latent = generate_chunked_latents(
+        engine=engine,
         prompt=prompt,
         frames=frames,
         width=width,
