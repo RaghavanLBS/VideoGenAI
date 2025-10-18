@@ -307,13 +307,12 @@ class WANEngine:
         # note: UNet expects latent channels = 4, and spatial dims are /8 of image dims
         h_lat = height // 8
         w_lat = width  // 8
-        latent_shape = (1, 4, frames, h_lat, w_lat)
+        channels = 16  # WAN 2.2 latent space uses 16 channels, not 4
+        latent_shape = (1, channels, frames, h_lat, w_lat)
 
-        # create noise with time dim
-        noise = torch.randn(latent_shape, device=device).to(dtype)
+        noise = torch.randn(latent_shape, device=device, dtype=dtype)
+        latent_image = torch.zeros_like(noise)
 
-        # use zeros as initial latent_image (some Comfy builds require non-None)
-        latent_image = torch.zeros_like(noise, device=device, dtype=dtype)
 
         # --- 3) Call comfy sampler ---
         latents = comfy_sample.sample(
