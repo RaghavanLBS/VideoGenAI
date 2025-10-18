@@ -387,12 +387,14 @@ class WANEngine:
 
         saved_count = 0
         for i in range(T):
+            print(f"[DEBUG] Starting  decoding 1")
             with torch.no_grad():
                 z = latent[:, :, i, :, :] if latent.dim() == 5 else latent
                 if needs_proj:
                     z = proj(z)
+                print(f"[DEBUG] Starting  decoding 2")
                 recon = vae.decode(z)
-
+            print(f"[DEBUG] Starting  decoding 1")
             if isinstance(recon, torch.Tensor):
                 recon = recon.detach().cpu()
                 if recon.min() < 0:  # normalize [-1,1] → [0,1]
@@ -403,6 +405,7 @@ class WANEngine:
                     continue
                 fname = os.path.join(frames_dir, f"frame_{i:04d}.png")
                 imageio.imwrite(fname, frame)
+                print(f"[DEBUG] saved {fname}")
                 saved_count += 1
 
         if saved_count == 0:
