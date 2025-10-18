@@ -19,9 +19,12 @@ echo "==> Upgrading pip and installing Python packages"
 pip install --upgrade pip setuptools wheel
 
 # ✅ Torch and essentials
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 pip install transformers diffusers safetensors accelerate ftfy
 pip install pillow tqdm numpy soundfile gtts streamlit
+pip install xformers flash-attn --no-build-isolation
+
+ 
 
 # ✅ Optional: ComfyUI (for model loader later, no heavy dependencies)
 if [ ! -d "ComfyUI" ]; then

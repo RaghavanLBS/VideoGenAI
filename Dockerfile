@@ -9,17 +9,19 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /workspace
 
+RUN pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+
+
 # Install dependencies
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install \
     transformers diffusers safetensors accelerate \
-    pillow tqdm numpy soundfile gtts streamlit \
-    torch torchvision torchaudio \
+    pillow tqdm numpy soundfile gtts stretorch torchvision torchaudio \
     xformers flash-attn --no-build-isolation || true
 
 # Clone ComfyUI for backend inference
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git
-RUN cd ComfyUI && pip install -r requirements.txt && pip install -e .
+#RUN git clone https://github.com/comfyanonymous/ComfyUI.git
+#RUN cd ComfyUI && pip install -r requirements.txt && pip install -e .
 
 # Copy your workflow and UI
 COPY wan2_workflow_v3.py /workspace/

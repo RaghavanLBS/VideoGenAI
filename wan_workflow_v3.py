@@ -171,8 +171,10 @@ class WANEngine:
     models: Dict[str, Any] = None
     comfy_loaded: bool = False
 
-    def __init__(self, models_dir="models"):
+    def __init__(self, models_dir="models", device ="cuda", precision="fp16"):
         self.models_dir = Path(models_dir)
+        self.device = device
+        self.precision = precision
         self.pipe = None
 
     def __post_init__(self):
