@@ -240,7 +240,7 @@ class WANEngine:
         vae_state = load_file("models/wan_2.1_vae.safetensors")
 
         from comfy.sd import load_checkpoint_guess_config
-        vae = load_checkpoint_guess_config("models/wan2_vae.safetensors", output_vae=True)
+        vae = load_checkpoint_guess_config("models/wan_2.1_vae.safetensors", output_vae=True)
 
         from safetensors.torch import load_file
         from transformers import T5EncoderModel, T5Config
