@@ -66,7 +66,7 @@ def check_flash_attention(disable_flash=False):
 def list_available_tasks():
     """Return list of supported task names from wan.config if possible."""
     try:
-        from wan.config import get_config
+        from wan.configs import get_config
         import inspect
         src = inspect.getsource(get_config)
         tasks = []
