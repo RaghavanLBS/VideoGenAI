@@ -114,7 +114,7 @@ def main():
     # --- Import WAN modules dynamically -----------------------------------
     try:
         from wan.text2video import WanT2V
-        from wan.config import get_config
+        from wan.configs import get_config
     except ImportError as e:
         logger.error("Could not import from WAN2.2 repo. Make sure 'Wan2.2/' is cloned and accessible.")
         logger.error(e)
