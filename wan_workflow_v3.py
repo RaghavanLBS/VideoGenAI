@@ -408,7 +408,7 @@ class WANEngine:
                 imageio.imwrite(fname, frame)
                 print(f"[DEBUG] saved {fname}")
                 saved_count += 1
-
+            break
         if saved_count == 0:
             raise RuntimeError("[WAN] ❌ No frames saved — latent decode failed or returned NaNs")
 
