@@ -28,12 +28,14 @@ pip install imageio
  
 
 # ✅ Optional: ComfyUI (for model loader later, no heavy dependencies)
-if [ ! -d "ComfyUI" ]; then
+if [ ! -d "Wan2.2" ]; then
   echo "==> Cloning ComfyUI (for model loaders, optional)"
-  git clone https://github.com/comfyanonymous/ComfyUI.git
+  git clone https://github.com/Wan-Video/Wan2.2.git
 fi
-cd ComfyUI
+cd Wan2.2
 pip install -r requirements.txt || true
+pip install -r requirements_animate.txt || true
+pip install -r requirements_s2v.txt || true
 #pip install -e .
 cd "$BASE_DIR"
 
