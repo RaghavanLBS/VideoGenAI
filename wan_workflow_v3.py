@@ -387,14 +387,14 @@ class WANEngine:
 
         saved_count = 0
         for i in range(T):
-            print(f"[DEBUG] Starting  decoding 1")
+            print(f"[DEBUG] Starting  decoding 1 for {i}")
             with torch.no_grad():
                 z = latent[:, :, i, :, :] if latent.dim() == 5 else latent
                 if needs_proj:
                     z = proj(z)
-                print(f"[DEBUG] Starting  decoding 2")
+                print(f"[DEBUG] Starting  decoding 2  for {i}")
                 recon = vae.decode(z)
-            print(f"[DEBUG] Starting  decoding 1")
+            print(f"[DEBUG] Starting  decoding 3  for {i}")
             if isinstance(recon, torch.Tensor):
                 recon = recon.detach().cpu()
                 if recon.min() < 0:  # normalize [-1,1] → [0,1]
