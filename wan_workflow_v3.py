@@ -396,6 +396,7 @@ class WANEngine:
                 recon = vae.decode(z)
             print(f"[DEBUG] Starting  decoding 3  for {i}")
             if isinstance(recon, torch.Tensor):
+                print(f"[DEBUG] Starting  decoding 4  for {i}")
                 recon = recon.detach().cpu()
                 if recon.min() < 0:  # normalize [-1,1] → [0,1]
                     recon = (recon.clamp(-1, 1) + 1) / 2
