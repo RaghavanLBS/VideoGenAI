@@ -239,9 +239,9 @@ class WANEngine:
         unet = comfy.sd.load_diffusion_model("models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors")
         vae_state = load_file("models/wan_2.1_vae.safetensors")
 
-        from diffusers import AutoencoderKL
-        vae = AutoencoderKL.from_config("stabilityai/sd-vae-ft-mse")
-        vae.load_state_dict(vae_state, strict=False)
+        from comfy.sd import load_checkpoint_guess_config
+        vae = load_checkpoint_guess_config("models/wan2_vae.safetensors", output_vae=True)
+
         from safetensors.torch import load_file
         from transformers import T5EncoderModel, T5Config
         
@@ -405,6 +405,8 @@ class WANEngine:
                     printt(f"[WARN] NaNs detected in frame {i}, skipping")
                     continue
                 fname = os.path.join(frames_dir, f"frame_{i:04d}.png")
+                print(f"[DEBUG] to be saved as {fname}")
+                
                 imageio.imwrite(fname, frame)
                 print(f"[DEBUG] saved {fname}")
                 saved_count += 1
