@@ -37,11 +37,14 @@ class WANEngine:
 
     def load_models(self):
         printt("Loading WAN 2.2 model from", self.ckpt_dir)
-        self.wan_t2v = WanT2V(
-            config="configs/wan2.2_t2v.json",  # adjust to your repo config
-            checkpoint_dir=self.ckpt_dir,
-            device_id=0
-        )
+        from omegaconf import OmegaConf
+        def ensure_config(cfg):
+            if isinstance(cfg, str):
+                return OmegaConf.load(cfg)
+            return cfg
+
+        config = ensure_config(config_path)
+        self.wan_t2v = WanT2V(config, checkpoint_dir)
         printt("✅ WAN 2.2 model loaded")
 
     def generate_latent(self, prompt, frames=32, size=(512,512), seed=42):
